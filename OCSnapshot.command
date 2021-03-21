@@ -103,20 +103,27 @@ class OCSnapshot:
         if not os.path.isdir(oc_folder):
             print("OC folder passed is not a directory!")
             exit(1)
-        in_file = self.u.check_path(in_file)
-        if not in_file:
-            print("Input plist passed does not exist!")
-            exit(1)
-        if os.path.isdir(in_file):
-            print("Input plist passed is a directory!")
-            exit(1)
+        if in_file:
+            in_file = self.u.check_path(in_file)
+            if not in_file:
+                print("Input plist passed does not exist!")
+                exit(1)
+            if os.path.isdir(in_file):
+                print("Input plist passed is a directory!")
+                exit(1)
+            try:
+                with open(in_file,"rb") as f:
+                    tree_dict = plist.load(f)
+            except Exception as e:
+                print("Error loading plist: {}".format(e))
+                exit(1)
+        else:
+            if not out_file:
+                print("At least one input or output file must be provided.")
+                exit(1)
+            # We got an out file at least - create an empty dict for the in_file
+            tree_dict = {}
         if not out_file: out_file = in_file
-        try:
-            with open(in_file,"rb") as f:
-                tree_dict = plist.load(f)
-        except Exception as e:
-            print("Error loading plist: {}".format(e))
-            exit(1)
 
         # Verify folder structure - should be as follows:
         # OC
@@ -397,7 +404,7 @@ class OCSnapshot:
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("-i", "--input-file", help="Path to the target plist.")
+    parser.add_argument("-i", "--input-file", help="Path to the input plist - will use an empty dictionary if none passed.")
     parser.add_argument("-o", "--output-file", help="Path to the output plist if different than input.")
     parser.add_argument("-s", "--snapshot", help="Path to the OC folder to snapshot.")
     parser.add_argument("-c", "--clean-snapshot", help="Remove existing ACPI, Kernel, Driver, and Tool entries before adding anew.", action="store_true")
