@@ -409,5 +409,12 @@ if __name__ == '__main__':
     parser.add_argument("-s", "--snapshot", help="Path to the OC folder to snapshot.")
     parser.add_argument("-c", "--clean-snapshot", help="Remove existing ACPI, Kernel, Driver, and Tool entries before adding anew.", action="store_true")
     args = parser.parse_args()
+    if not args.snapshot or (not args.input_file and not args.output_file):
+        print("Missing at least one required argument!\n")
+        if not args.snapshot: print("-s/--snapshot is a required argument!")
+        if (not args.input_file and not args.output_file): print("At least one -i/--input-file or -o/--output-file must be provided!")
+        print("")
+        parser.print_help()
+        exit(1)
     o = OCSnapshot()
     o.snapshot(args.input_file, args.output_file, args.snapshot, args.clean_snapshot)
