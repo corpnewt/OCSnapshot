@@ -13,61 +13,6 @@ class OCSnapshot:
                     self.snapshot_data = plist.load(f)
             except: pass
 
-    def walk_kexts(self,path,parent="",kext_add={}):
-        kexts = []
-        # Let's make sure we check Lilu first if it exists
-        kext_list   = sorted([x for x in os.listdir(path) if not x.lower() in ("fakesmc.kext","lilu.kext","virtualsmc.kext")])
-        merged_list = sorted([x for x in os.listdir(path) if x.lower() in ("fakesmc.kext","lilu.kext","virtualsmc.kext")])
-        merged_list.extend(kext_list)
-        for x in merged_list:
-            if x.startswith("."):
-                continue
-            if not x.lower().endswith(".kext"):
-                continue
-            kdir = os.path.join(path,x)
-            if not os.path.isdir(kdir):
-                continue
-            kdict = {
-                # "Arch":"Any",
-                "BundlePath":parent+"/"+x if len(parent) else x,
-                "Comment":"",
-                "Enabled":True,
-                # "MaxKernel":"",
-                # "MinKernel":"",
-                "ExecutablePath":""
-            }
-            # Add our entries from kext_add as needed
-            for y in kext_add: kdict[y] = kext_add[y]
-            kinfo = {}
-            # Get the Info.plist
-            plist_rel_path = plist_full_path = None
-            if os.path.exists(os.path.join(kdir,"Contents","Info.plist")):
-                plist_rel_path  = "Contents/Info.plist"
-                plist_full_path = os.path.join(kdir,"Contents","Info.plist")
-            elif os.path.exists(os.path.join(kdir,"Info.plist")):
-                plist_rel_path  = "Info.plist"
-                plist_full_path = os.path.join(kdir,"Info.plist")
-            if plist_rel_path == None: continue # Needs *at least* a valid Info.plist
-            kdict["PlistPath"] = plist_rel_path
-            # Let's load the plist and check for other info
-            try:
-                with open(plist_full_path,"rb") as f:
-                    info_plist = plist.load(f)
-                kinfo["CFBundleIdentifier"] = info_plist.get("CFBundleIdentifier",None)
-                kinfo["OSBundleLibraries"] = info_plist.get("OSBundleLibraries",[])
-                if info_plist.get("CFBundleExecutable",None):
-                    if not os.path.exists(os.path.join(kdir,"Contents","MacOS",info_plist["CFBundleExecutable"])):
-                        continue # Requires an executable that doesn't exist - bail
-                    kdict["ExecutablePath"] = "Contents/MacOS/"+info_plist["CFBundleExecutable"]
-            except: continue # Something else broke here - bail
-            # Should have something here
-            kexts.append((kdict,kinfo))
-            # Check if we have a PlugIns folder
-            pdir = kdir+"/Contents/PlugIns"
-            if os.path.exists(pdir) and os.path.isdir(pdir):
-                kexts.extend(self.walk_kexts(pdir,(parent+"/"+x if len(parent) else x)+"/Contents/PlugIns",kext_add=kext_add))
-        return kexts
-
     def get_min_max_from_match(self, match_text):
         # Helper method to take MatchKernel output and break it into the MinKernel and MaxKernel
         temp_min = "0.0.0"
@@ -147,10 +92,10 @@ class OCSnapshot:
 
         for x in (oc_acpi,oc_drivers,oc_kexts):
             if not os.path.exists(x):
-                print("Incorrect OC Folder Struction", "{} does not exist.".format(x))
+                print("Incorrect OC Folder Struction - {} does not exist.".format(x))
                 exit(1)
             if x != oc_efi and not os.path.isdir(x):
-                print("Incorrect OC Folder Struction", "{} exists, but is not a directory.".format(x))
+                print("Incorrect OC Folder Struction - {} exists, but is not a directory.".format(x))
                 exit(1)
 
         # Folders are valid - lets work through each section
@@ -330,10 +275,10 @@ class OCSnapshot:
             rearranged.append(check2[out_of_place])
         # Verify if the load order changed - and prompt the user if need be
         if len(rearranged):
-            print("Incorrect kext load order will be corrected:\n\n{}".format("\n".join(rearranged)))
+            print("Incorrect kext load order has been corrected:\n\n{}".format("\n".join(rearranged)))
             ordered_kexts = original_kexts # We didn't want to update it
         if len(disabled_parents):
-            print("Disabled parent kexts will be enabled:\n\n{}".format("\n".join(disabled_parents)))
+            print("Disabled parent kexts have been enabled:\n\n{}".format("\n".join(disabled_parents)))
             for x in ordered_kexts: # Walk our kexts and enable the parents
                 if x.get("BundlePath","") in disabled_parents: x["Enabled"] = True
         # Finally - we walk the kexts and ensure that we're not loading the same CFBundleIdentifier more than once
@@ -371,7 +316,7 @@ class OCSnapshot:
             if temp_kext.get("Enabled",False): enabled_kexts.append((temp_kext,info[1]))
         # Check if we have duplicates - and offer to disable them
         if len(duplicate_bundles):
-            print("Duplicate CFBundleIdentifiers will be disabled:\n\n{}".format("\n".join(duplicate_bundles)))
+            print("Duplicate CFBundleIdentifiers have been disabled:\n\n{}".format("\n".join(duplicate_bundles)))
             ordered_kexts = duplicates_disabled
 
         tree_dict["Kernel"]["Add"] = ordered_kexts
@@ -445,6 +390,7 @@ class OCSnapshot:
         try:
             with open(out_file, "wb") as f:
                 plist.dump(tree_dict,f)
+            print("\nOutput saved to: {}".format(out_file))
         except Exception as e:
             print("Failed to write output plist: {}".format(e))
             exit(1)
