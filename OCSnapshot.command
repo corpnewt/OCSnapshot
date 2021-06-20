@@ -224,34 +224,58 @@ class OCSnapshot:
             new_add.append(aml)
         tree_dict["ACPI"]["Add"] = new_add
 
-        # Next we need to walk the .efi drivers - in basically the same exact manner
-        if not "UEFI" in tree_dict or not isinstance(tree_dict["UEFI"],dict):
-            tree_dict["UEFI"] = {"Drivers":[]}
-        if not "Drivers" in tree_dict["UEFI"] or not isinstance(tree_dict["UEFI"]["Drivers"],list):
-            tree_dict["UEFI"]["Drivers"] = []
-        # Now we walk the existing values
-        new_efi = [x for x in os.listdir(oc_drivers) if x.lower().endswith(".efi") and not x.startswith(".")]
-        add = [] if clean else tree_dict["UEFI"]["Drivers"]
-        for efi in sorted(new_efi,key=lambda x:x.lower()):
-            if efi.lower() in [x.lower() for x in add]:
-                # Found it - skip
-                continue
-            # Doesn't exist, add it
-            add.append(efi)
-        new_add = []
-        for efi in add:
-            if not efi.lower() in [x.lower() for x in new_efi]:
-                # Not there, skip
-                continue
-            new_add.append(efi)
-        tree_dict["UEFI"]["Drivers"] = new_add
-
         # Now we need to walk the kexts
         if not "Kernel" in tree_dict or not isinstance(tree_dict["Kernel"],dict):
             tree_dict["Kernel"] = {"Add":[]}
         if not "Add" in tree_dict["Kernel"] or not isinstance(tree_dict["Kernel"]["Add"],list):
             tree_dict["Kernel"]["Add"] = []
-        kext_list = self.walk_kexts(oc_kexts,kext_add=kext_add)
+
+        kext_list = []
+        # We need to gather a list of all the files inside that and with .efi
+        for path, subdirs, files in os.walk(oc_kexts):
+            for name in sorted(subdirs, key=lambda x:x.lower()):
+                if name.startswith(".") or not name.lower().endswith(".kext"): continue
+                kdict = {
+                    # "Arch":"Any",
+                    "BundlePath":os.path.join(path,name)[len(oc_kexts):].replace("\\", "/").lstrip("/"),
+                    "Comment":"",
+                    "Enabled":True,
+                    # "MaxKernel":"",
+                    # "MinKernel":"",
+                    "ExecutablePath":""
+                }
+                # Add our entries from kext_add as needed
+                for y in kext_add: kdict[y] = kext_add[y]
+                # Get the Info.plist
+                plist_full_path = plist_rel_path = None
+                for kpath, ksubdirs, kfiles in os.walk(os.path.join(path,name)):
+                    for kname in kfiles:
+                        if kname.lower() == "info.plist":
+                            plist_full_path = os.path.join(kpath,kname)
+                            plist_rel_path = plist_full_path[len(os.path.join(path,name)):].replace("\\", "/").lstrip("/")
+                            break
+                    if plist_full_path: break # Found it - break
+                else:
+                    # Didn't find it - skip
+                    continue
+                kdict["PlistPath"] = plist_rel_path
+                # Let's load the plist and check for other info
+                try:
+                    with open(plist_full_path,"rb") as f:
+                        info_plist = plist.load(f)
+                    kinfo = {
+                        "CFBundleIdentifier": info_plist.get("CFBundleIdentifier",None),
+                        "OSBundleLibraries": info_plist.get("OSBundleLibraries",[])
+                    }
+                    if info_plist.get("CFBundleExecutable",None):
+                        if not os.path.exists(os.path.join(path,name,"Contents","MacOS",info_plist["CFBundleExecutable"])):
+                            continue # Requires an executable that doesn't exist - bail
+                        kdict["ExecutablePath"] = "Contents/MacOS/"+info_plist["CFBundleExecutable"]
+                except Exception as e: 
+                    continue # Something else broke here - bail
+                # Should have something valid here
+                kext_list.append((kdict,kinfo))
+
         bundle_list = [x[0].get("BundlePath","") for x in kext_list]
         kexts = [] if clean else tree_dict["Kernel"]["Add"]
         original_kexts = [x for x in kexts if x.get("BundlePath","") in bundle_list] # get the original load order for comparison purposes - but omit any that no longer exist
@@ -395,6 +419,29 @@ class OCSnapshot:
         else:
             # Make sure our Tools list is empty
             tree_dict["Misc"]["Tools"] = []
+
+        # Last we need to walk the .efi drivers
+        if not "UEFI" in tree_dict or not isinstance(tree_dict["UEFI"],dict):
+            tree_dict["UEFI"] = {"Drivers":[]}
+        if not "Drivers" in tree_dict["UEFI"] or not isinstance(tree_dict["UEFI"]["Drivers"],list):
+            tree_dict["UEFI"]["Drivers"] = []
+        # Now we walk the existing values
+        new_efi = [x for x in os.listdir(oc_drivers) if x.lower().endswith(".efi") and not x.startswith(".")]
+        add = [] if clean else tree_dict["UEFI"]["Drivers"]
+        for efi in sorted(new_efi,key=lambda x:x.lower()):
+            if efi.lower() in [x.lower() for x in add]:
+                # Found it - skip
+                continue
+            # Doesn't exist, add it
+            add.append(efi)
+        new_add = []
+        for efi in add:
+            if not efi.lower() in [x.lower() for x in new_efi]:
+                # Not there, skip
+                continue
+            new_add.append(efi)
+        tree_dict["UEFI"]["Drivers"] = new_add
+        
         try:
             with open(out_file, "wb") as f:
                 plist.dump(tree_dict,f)
