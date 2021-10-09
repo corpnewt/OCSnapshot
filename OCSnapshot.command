@@ -184,7 +184,7 @@ class OCSnapshot:
                 kdict = {
                     # "Arch":"Any",
                     "BundlePath":os.path.join(path,name)[len(oc_kexts):].replace("\\", "/").lstrip("/"),
-                    "Comment":"",
+                    "Comment":name,
                     "Enabled":True,
                     # "MaxKernel":"",
                     # "MinKernel":"",
@@ -387,7 +387,7 @@ class OCSnapshot:
                                 "Path":os.path.join(path,name)[len(oc_drivers):].replace("\\", "/").lstrip("/") # Strip the /Volumes/EFI/
                             }
                             # Add our snapshot custom entries, if any
-                            for x in driver_add: new_driver_entry[x] = driver_add[x]
+                            for x in driver_add: new_driver_entry[x] = name if x.lower() == "comment" else driver_add[x]
                             drivers_list.append(new_driver_entry)
             drivers = [] if clean else tree_dict["UEFI"]["Drivers"]
             for driver in sorted(drivers_list, key=lambda x: x.get("Path","").lower() if driver_add else x):
