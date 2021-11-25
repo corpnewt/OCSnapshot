@@ -1,11 +1,17 @@
 #!/usr/bin/env python
 import argparse, os, hashlib
-from Scripts import *
+from Scripts import utils, plist
+
+try:
+    long
+    unicode
+except NameError:  # Python 3
+    long = int
+    unicode = str
 
 class OCSnapshot:
     def __init__(self):
         self.u = utils.Utils("OC Snapshot")
-        self.r = run.Run()
         self.snapshot_data = {}
         if os.path.exists("Scripts/snapshot.plist"):
             try:
@@ -84,11 +90,11 @@ class OCSnapshot:
         #  | +- SomeFolder
         #  | | +- SomeOtherTool.efi
         
-        oc_acpi    = os.path.join(oc_folder,"ACPI")
-        oc_drivers = os.path.join(oc_folder,"Drivers")
-        oc_kexts   = os.path.join(oc_folder,"Kexts")
-        oc_tools   = os.path.join(oc_folder,"Tools")
-        oc_efi     = os.path.join(oc_folder,"OpenCore.efi")
+        oc_acpi    = os.path.normpath(os.path.join(oc_folder,"ACPI"))
+        oc_drivers = os.path.normpath(os.path.join(oc_folder,"Drivers"))
+        oc_kexts   = os.path.normpath(os.path.join(oc_folder,"Kexts"))
+        oc_tools   = os.path.normpath(os.path.join(oc_folder,"Tools"))
+        oc_efi     = os.path.normpath(os.path.join(oc_folder,"OpenCore.efi"))
 
         for x in (oc_acpi,oc_drivers,oc_kexts):
             if not os.path.exists(x):
