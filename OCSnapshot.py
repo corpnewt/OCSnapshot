@@ -13,6 +13,7 @@ class OCSnapshot:
     def __init__(self):
         self.u = utils.Utils("OC Snapshot")
         self.snapshot_data = {}
+        self.safe_path_length = 128 # OC_STORAGE_SAFE_PATH_MAX from Include/Acidanthera/Library/OcStorageLib.h in OpenCorePkg
         if os.path.exists("Scripts/snapshot.plist"):
             try:
                 with open("Scripts/snapshot.plist","rb") as f:
@@ -45,6 +46,24 @@ class OCSnapshot:
         temp_min = "0.0.0" if temp_min == "" else temp_min
         temp_max = "99.99.99" if temp_max == "" else temp_max
         return (temp_min,temp_max)
+
+    def check_path_length(self, item):
+        paths_too_long = []
+        if isinstance(item,dict):
+            # Get the last path component of the Path or BundlePath values for the name
+            name = os.path.basename(item.get("Path",item.get("BundlePath","Unknown Name")))
+            # Check the keys containing "path"
+            for key in item:
+                if "path" in key.lower() and isinstance(item[key],str) and len(item[key])>self.safe_path_length:
+                    paths_too_long.append(key) # Too long - keep a reference of the key
+        elif isinstance(item,str):
+            name = os.path.basename(item) # Retain the last path component as the name
+            # Checking the item itself
+            if len(item)>self.safe_path_length:
+                paths_too_long.append(item)
+        else: return paths_too_long # Empty list
+        if not paths_too_long: return [] # Return an empty array to allow .extend()
+        return [(item,name,paths_too_long)] # Return a list containing a tuple of the original item, and which paths are too long
     
     def snapshot(self, in_file = None, out_file = None, oc_folder = None, clean = False):
         oc_folder = self.u.check_path(oc_folder)
@@ -133,6 +152,8 @@ class OCSnapshot:
         tool_add   = target_snap.get("tool_add",{})
         driver_add = target_snap.get("driver_add",{})
 
+        long_paths = [] # We'll add any paths that exceed the OC_STORAGE_SAFE_PATH_MAX of 128 chars
+
         # ACPI is first, we'll iterate the .aml files we have and add what is missing
         # while also removing what exists in the plist and not in the folder.
         # If something exists in the table already, we won't touch it.  This leaves the
@@ -174,6 +195,8 @@ class OCSnapshot:
                 # Not there, skip
                 continue
             new_add.append(aml)
+            # Check path length
+            long_paths.extend(self.check_path_length(aml))
         tree_dict["ACPI"]["Add"] = new_add
 
         # Now we need to walk the kexts
@@ -282,10 +305,10 @@ class OCSnapshot:
             rearranged.append(check2[out_of_place])
         # Verify if the load order changed - and prompt the user if need be
         if len(rearranged):
-            print("Incorrect kext load order has been corrected:\n\n{}".format("\n".join(rearranged)))
+            print("\nIncorrect kext load order has been corrected:\n\n{}".format("\n".join(rearranged)))
             ordered_kexts = original_kexts # We didn't want to update it
         if len(disabled_parents):
-            print("Disabled parent kexts have been enabled:\n\n{}".format("\n".join(disabled_parents)))
+            print("\nDisabled parent kexts have been enabled:\n\n{}".format("\n".join(disabled_parents)))
             for x in ordered_kexts: # Walk our kexts and enable the parents
                 if x.get("BundlePath","") in disabled_parents: x["Enabled"] = True
         # Finally - we walk the kexts and ensure that we're not loading the same CFBundleIdentifier more than once
@@ -293,6 +316,8 @@ class OCSnapshot:
         duplicate_bundles = []
         duplicates_disabled = []
         for kext in ordered_kexts:
+            # Check path length
+            long_paths.extend(self.check_path_length(kext))
             temp_kext = {}
             # Shallow copy the kext entry to avoid changing it in ordered_kexts
             for x in kext: temp_kext[x] = kext[x]
@@ -323,7 +348,7 @@ class OCSnapshot:
             if temp_kext.get("Enabled",False): enabled_kexts.append((temp_kext,info[1]))
         # Check if we have duplicates - and offer to disable them
         if len(duplicate_bundles):
-            print("Duplicate CFBundleIdentifiers have been disabled:\n\n{}".format("\n".join(duplicate_bundles)))
+            print("\nDuplicate CFBundleIdentifiers have been disabled:\n\n{}".format("\n".join(duplicate_bundles)))
             ordered_kexts = duplicates_disabled
 
         tree_dict["Kernel"]["Add"] = ordered_kexts
@@ -367,6 +392,8 @@ class OCSnapshot:
                     # Not there, skip it
                     continue
                 new_tools.append(tool)
+                # Check path length
+            long_paths.extend(self.check_path_length(tool))
             tree_dict["Misc"]["Tools"] = new_tools
         else:
             # Make sure our Tools list is empty
@@ -419,10 +446,27 @@ class OCSnapshot:
                         # Not there, skip it
                         continue
                 new_drivers.append(driver)
+                # Check path length
+            long_paths.extend(self.check_path_length(driver))
             tree_dict["UEFI"]["Drivers"] = new_drivers
         else:
             # Make sure our Drivers list is empty
             tree_dict["UEFI"]["Drivers"] = []
+
+        # Check if we have any paths that are too long
+        if long_paths:
+            formatted = []
+            for entry in long_paths:
+                item,name,keys = entry
+                if isinstance(item,str): # It's an older string path
+                    formatted.append(name)
+                elif isinstance(item,dict):
+                    formatted.append("{} -> {}".format(name,", ".join(keys)))
+            # Show the warning of lengthy paths
+            print("\nThe following exceed the {:,} character safe path max declared by OpenCore\nand may not work as intended:\n\n{}".format(
+                self.safe_path_length,
+                "\n".join(formatted)
+            ))
         
         try:
             with open(out_file, "wb") as f:
