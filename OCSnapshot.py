@@ -14,9 +14,10 @@ class OCSnapshot:
         self.u = utils.Utils("OC Snapshot")
         self.snapshot_data = {}
         self.safe_path_length = 128 # OC_STORAGE_SAFE_PATH_MAX from Include/Acidanthera/Library/OcStorageLib.h in OpenCorePkg
-        if os.path.exists("Scripts/snapshot.plist"):
+        snapshot_plist = os.path.join(os.path.dirname(os.path.realpath(__file__)),"Scripts","snapshot.plist")
+        if os.path.exists(snapshot_plist):
             try:
-                with open("Scripts/snapshot.plist","rb") as f:
+                with open(snapshot_plist,"rb") as f:
                     self.snapshot_data = plist.load(f)
             except: pass
 
