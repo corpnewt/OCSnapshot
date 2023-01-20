@@ -66,7 +66,7 @@ class OCSnapshot:
         if not paths_too_long: return [] # Return an empty array to allow .extend()
         return [(item,name,paths_too_long)] # Return a list containing a tuple of the original item, and which paths are too long
     
-    def snapshot(self, in_file = None, out_file = None, oc_folder = None, clean = False):
+    def snapshot(self, in_file = None, out_file = None, oc_folder = None, clean = False, oc_schema = None, force_update_schema = False):
         oc_folder = self.u.check_path(oc_folder)
         if not oc_folder:
             print("OC folder passed does not exist!")
@@ -137,21 +137,40 @@ class OCSnapshot:
         # Let's get the version of the snapshot that matches our target, and that matches our hash if any
         latest_snap = {} # Highest min_version
         target_snap = {} # Matches our hash
+        select_snap = {} # Whatever the user selected
+        user_snap   = oc_schema or "auto-detect" # Default to "auto-detect" if None
         for snap in self.snapshot_data:
             hashes = snap.get("release_hashes",[])
             hashes.extend(snap.get("debug_hashes",[]))
             # Retain the highest version we see
             if snap.get("min_version","0.0.0") > latest_snap.get("min_version","0.0.0"):
                 latest_snap = snap
+                # If we want the latest, retain the select_snap as well
+                if user_snap.lower() == "latest": select_snap = snap
             # Also retain the last snap that matches our hash
             if len(oc_hash) and (oc_hash in snap.get("release_hashes",[]) or oc_hash in snap.get("debug_hashes",[])):
                 target_snap = snap
-        if not target_snap: target_snap = latest_snap
+                # If we're auto-detecting, retain the select_snap as well
+                if user_snap.lower() == "auto-detect": select_snap = snap
+            # Save the snap that matches the user's choice too if not Latest or Auto-detect
+            if user_snap.lower() not in ("auto-detect","latest") and user_snap >= snap.get("min_version","0.0.0") and snap.get("min_version","0.0.0") > select_snap.get("min_version","0.0.0"):
+                select_snap = snap
+        # Make sure we have a value for select_snap - either its own, or the latest
+        select_snap = select_snap or latest_snap
+        sel_min,sel_max = select_snap.get("min_version","0.0.0"),select_snap.get("max_version","Current")
+        select_ver = sel_min if sel_min==sel_max else "{} -> {}".format(sel_min,sel_max)
+        if target_snap and target_snap != select_snap: # Version mismatch - warn
+            tar_min,tar_max = target_snap.get("min_version","0.0.0"),target_snap.get("max_version","Current")
+            found_ver  = tar_min if tar_min==tar_max else "{} -> {}".format(tar_min,tar_max)
+            # Print a warning about our snapshot mismatch - and use what the user selected
+            print("\nUsing user selected OC schema for {} instead of the detected {}.".format(select_ver,found_ver))
+        else:
+            print("\nUsing OC schema for {}.".format(select_ver))
         # Apply our snapshot values
-        acpi_add   = target_snap.get("acpi_add",{})
-        kext_add   = target_snap.get("kext_add",{})
-        tool_add   = target_snap.get("tool_add",{})
-        driver_add = target_snap.get("driver_add",{})
+        acpi_add   = select_snap.get("acpi_add",{})
+        kext_add   = select_snap.get("kext_add",{})
+        tool_add   = select_snap.get("tool_add",{})
+        driver_add = select_snap.get("driver_add",{})
 
         long_paths = [] # We'll add any paths that exceed the OC_STORAGE_SAFE_PATH_MAX of 128 chars
 
@@ -471,6 +490,17 @@ class OCSnapshot:
             # Make sure our Drivers list is empty
             tree_dict["UEFI"]["Drivers"] = []
 
+        if force_update_schema:
+            print("\nForcing shapshot schema update.")
+            ignored = ["Comment","Enabled","Path","BundlePath","ExecutablePath","PlistPath","Name"]
+            for entries,values in ((tree_dict["ACPI"]["Add"],acpi_add),(tree_dict["Kernel"]["Add"],kext_add),(tree_dict["Misc"]["Tools"],tool_add),(tree_dict["UEFI"]["Drivers"],driver_add)):
+                if not values: continue # Skip if nothing to check
+                for entry in entries:
+                    to_remove = [x for x in entry if not x in values and not x in ignored]
+                    to_add =    [x for x in values if not x in entry]
+                    for add in to_add:    entry[add] = os.path.basename(entry.get("Path",values[add])) if add.lower() == "comment" else values[add]
+                    for rem in to_remove: entry.pop(rem,None)
+
         # Check if we have any paths that are too long
         if long_paths:
             formatted = []
@@ -499,7 +529,9 @@ if __name__ == '__main__':
     parser.add_argument("-i", "--input-file", help="Path to the input plist - will use an empty dictionary if none passed.")
     parser.add_argument("-o", "--output-file", help="Path to the output plist if different than input.")
     parser.add_argument("-s", "--snapshot", help="Path to the OC folder to snapshot.")
+    parser.add_argument("-v", "--oc-version", help="The OC version schema to use.  Accepts X.Y.Z version numbers, latest, or auto-detect.  Default is auto-detect.")
     parser.add_argument("-c", "--clean-snapshot", help="Remove existing ACPI, Kernel, Driver, and Tool entries before adding anew.", action="store_true")
+    parser.add_argument("-f", "--force-update-schema", help="Add missing or remove erroneous keys from existing snapshot entries.", action="store_true")
     args = parser.parse_args()
     if not args.snapshot or (not args.input_file and not args.output_file):
         print("Missing at least one required argument!\n")
@@ -508,5 +540,25 @@ if __name__ == '__main__':
         print("")
         parser.print_help()
         exit(1)
+    oc_schema = "auto-detect" # Default to auto, override as needed
+    if args.oc_version:
+        if args.oc_version.lower() in ("auto","auto-detect","latest"):
+            oc_schema = "latest" if args.oc_version.lower() == "latest" else "auto-detect"
+        else: # Verify the values are all valid numbers
+            try:
+                int_list = [int(x) for x in args.oc_version.split(".")]
+                assert len(int_list) == 3
+                oc_schema = args.oc_version
+            except:
+                print("Invalid --oc-version value passed!\n")
+                parser.print_help()
+                exit(1)
     o = OCSnapshot()
-    o.snapshot(args.input_file, args.output_file, args.snapshot, args.clean_snapshot)
+    o.snapshot(
+        in_file=args.input_file,
+        out_file=args.output_file,
+        oc_folder=args.snapshot,
+        clean=args.clean_snapshot,
+        oc_schema=oc_schema,
+        force_update_schema=args.force_update_schema
+    )
