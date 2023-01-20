@@ -139,6 +139,11 @@ class OCSnapshot:
         target_snap = {} # Matches our hash
         select_snap = {} # Whatever the user selected
         user_snap   = oc_schema or "auto-detect" # Default to "auto-detect" if None
+        if "." in user_snap: # We provided a value - check our lower bounds
+            lowest = min([x["min_version"] for x in self.snapshot_data if "min_version" in x])
+            if user_snap < lowest:
+                print("\nUser provided snapshot is lower than the minimum - using {} instead.".format(lowest))
+                user_snap = lowest
         for snap in self.snapshot_data:
             hashes = snap.get("release_hashes",[])
             hashes.extend(snap.get("debug_hashes",[]))
