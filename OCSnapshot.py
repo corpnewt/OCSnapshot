@@ -551,9 +551,9 @@ if __name__ == '__main__':
             oc_schema = "latest" if args.oc_version.lower() == "latest" else "auto-detect"
         else: # Verify the values are all valid numbers
             try:
-                int_list = [int(x) for x in args.oc_version.split(".")]
+                int_list = [str(int(x)) for x in args.oc_version.split(".")]
                 assert len(int_list) == 3
-                oc_schema = args.oc_version
+                oc_schema = ".".join(int_list)
             except:
                 print("Invalid --oc-version value passed!\n")
                 parser.print_help()
