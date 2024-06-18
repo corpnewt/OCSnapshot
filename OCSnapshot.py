@@ -110,11 +110,38 @@ class OCSnapshot:
         #  | +- SomeFolder
         #  | | +- SomeOtherTool.efi
         
-        oc_acpi    = os.path.normpath(os.path.join(oc_folder,"ACPI"))
-        oc_drivers = os.path.normpath(os.path.join(oc_folder,"Drivers"))
-        oc_kexts   = os.path.normpath(os.path.join(oc_folder,"Kexts"))
-        oc_tools   = os.path.normpath(os.path.join(oc_folder,"Tools"))
-        oc_efi     = os.path.normpath(os.path.join(oc_folder,"OpenCore.efi"))
+        def check_folders(path):
+            return_dict = {
+                "oc_acpi":   os.path.normpath(os.path.join(path,"ACPI")),
+                "oc_drivers":os.path.normpath(os.path.join(path,"Drivers")),
+                "oc_kexts":  os.path.normpath(os.path.join(path,"Kexts")),
+                "oc_tools":  os.path.normpath(os.path.join(path,"Tools")),
+                "oc_efi":    os.path.normpath(os.path.join(path,"OpenCore.efi"))
+            }
+            return_dict["missing"] = [return_dict[x] for x in ("oc_acpi","oc_drivers","oc_kexts") if not os.path.isdir(return_dict[x])]
+            return return_dict
+
+        oc_path_check = check_folders(oc_folder)
+        if oc_path_check["missing"]:
+            # User might have selected their EFI folder - try to resolve
+            # an OC folder within
+            efi_oc_folder = os.path.join(oc_folder,"OC")
+            efi_path_check = check_folders(efi_oc_folder)
+            if efi_path_check["missing"]:
+                # No dice
+                print("Incorrect OC Folder Structure - The following required folders do not exist:\n\n{}".format(
+                    ", ".join([os.path.basename(x) for x in oc_path_check["missing"]])
+                ))
+                exit(1)
+            # We got it - update path related vars
+            oc_path_check = efi_path_check
+        
+        # Extract our vars
+        oc_acpi    = oc_path_check["oc_acpi"]
+        oc_drivers = oc_path_check["oc_drivers"]
+        oc_kexts   = oc_path_check["oc_kexts"]
+        oc_tools   = oc_path_check["oc_tools"]
+        oc_efi     = oc_path_check["oc_efi"]
 
         for x in (oc_acpi,oc_drivers,oc_kexts):
             if not os.path.exists(x):
@@ -168,9 +195,9 @@ class OCSnapshot:
             tar_min,tar_max = target_snap.get("min_version","0.0.0"),target_snap.get("max_version","Current")
             found_ver  = tar_min if tar_min==tar_max else "{} -> {}".format(tar_min,tar_max)
             # Print a warning about our snapshot mismatch - and use what the user selected
-            print("\nUsing user selected OC schema for {} instead of the detected {}.".format(select_ver,found_ver))
+            print("Using user selected OC schema for {} instead of the detected {}.\n".format(select_ver,found_ver))
         else:
-            print("\nUsing OC schema for {}.".format(select_ver))
+            print("Using OC schema for {}.\n".format(select_ver))
         # Apply our snapshot values
         acpi_add   = select_snap.get("acpi_add",{})
         kext_add   = select_snap.get("kext_add",{})
@@ -241,7 +268,7 @@ class OCSnapshot:
                     acpi_enabled.append(a.get("Path",""))
                     acpi_duplicates_disabled.append(a)
         if len(acpi_duplicates):
-            print("\nDuplicate ACPI entries have been disabled:\n\n{}".format("\n".join(acpi_duplicates)))
+            print("Duplicate ACPI entries have been disabled:\n\n{}\n".format("\n".join(acpi_duplicates)))
             new_add = acpi_duplicates_disabled
         # Save the results
         tree_dict["ACPI"]["Add"] = new_add
@@ -372,10 +399,10 @@ class OCSnapshot:
             rearranged.append(check2[out_of_place])
         # Verify if the load order changed - and prompt the user if need be
         if len(rearranged):
-            print("\nIncorrect kext load order has been corrected:\n\n{}".format("\n".join(rearranged)))
+            print("Incorrect kext load order has been corrected:\n\n{}\n".format("\n".join(rearranged)))
             ordered_kexts = original_kexts # We didn't want to update it
         if len(disabled_parents):
-            print("\nDisabled parent kexts have been enabled:\n\n{}".format("\n".join([x[0].get("BundlePath","") for x in disabled_parents])))
+            print("Disabled parent kexts have been enabled:\n\n{}\n".format("\n".join([x[0].get("BundlePath","") for x in disabled_parents])))
             for p in disabled_parents: p[0]["Enabled"] = True
         # Finally - we walk the kexts and ensure that we're not loading the same CFBundleIdentifier more than once
         enabled_kexts = []
@@ -425,7 +452,7 @@ class OCSnapshot:
                 enabled_kexts.append((temp_kext,info))
         # Check if we have duplicates - and offer to disable them
         if len(duplicate_bundles):
-            print("\nDuplicate CFBundleIdentifiers have been disabled:\n\n{}".format("\n".join(duplicate_bundles)))
+            print("Duplicate CFBundleIdentifiers have been disabled:\n\n{}\n".format("\n".join(duplicate_bundles)))
             ordered_kexts = duplicates_disabled
 
         tree_dict["Kernel"]["Add"] = ordered_kexts
@@ -496,7 +523,7 @@ class OCSnapshot:
                         tools_enabled.append(t.get("Path",""))
                         tools_duplicates_disabled.append(t)
             if len(tools_duplicates):
-                print("\nDuplicate Tools entries have been disabled:\n\n{}".format("\n".join(tools_duplicates)))
+                print("Duplicate Tools entries have been disabled:\n\n{}\n".format("\n".join(tools_duplicates)))
                 new_tools = tools_duplicates_disabled
             new_add = acpi_duplicates_disabled
             # Save the results
@@ -584,7 +611,7 @@ class OCSnapshot:
                         drivers_enabled.append(d)
                         drivers_duplicates_disabled.append(d)
             if len(drivers_duplicates):
-                print("\nDuplicate Drivers entries have been disabled:\n\n{}".format("\n".join(drivers_duplicates)))
+                print("Duplicate Drivers entries have been disabled:\n\n{}\n".format("\n".join(drivers_duplicates)))
                 new_drivers = drivers_duplicates_disabled
             # Save the results
             tree_dict["UEFI"]["Drivers"] = new_drivers
@@ -593,7 +620,7 @@ class OCSnapshot:
             tree_dict["UEFI"]["Drivers"] = []
 
         if force_update_schema:
-            print("\nForcing shapshot schema update.")
+            print("Forcing shapshot schema update.\n")
             ignored = ["Comment","Enabled","Path","BundlePath","ExecutablePath","PlistPath","Name"]
             for entries,values in ((tree_dict["ACPI"]["Add"],acpi_add),(tree_dict["Kernel"]["Add"],kext_add),(tree_dict["Misc"]["Tools"],tool_add),(tree_dict["UEFI"]["Drivers"],driver_add)):
                 values["Comment"] = ""
@@ -621,7 +648,7 @@ class OCSnapshot:
                 elif isinstance(item,dict):
                     formatted.append("{} -> {}".format(name,", ".join(keys)))
             # Show the warning of lengthy paths
-            print("\nThe following exceed the {:,} character safe path max declared by OpenCore\nand may not work as intended:\n\n{}".format(
+            print("The following exceed the {:,} character safe path max declared by OpenCore\nand may not work as intended:\n\n{}\n".format(
                 self.safe_path_length,
                 "\n".join(formatted)
             ))
@@ -629,7 +656,7 @@ class OCSnapshot:
         try:
             with open(out_file, "wb") as f:
                 plist.dump(tree_dict,f)
-            print("\nOutput saved to: {}".format(out_file))
+            print("Output saved to: {}".format(out_file))
         except Exception as e:
             print("Failed to write output plist: {}".format(e))
             exit(1)
