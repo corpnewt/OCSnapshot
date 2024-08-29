@@ -503,7 +503,7 @@ class OCSnapshot:
                     continue
                 new_tools.append(tool)
                 # Check path length
-            long_paths.extend(self.check_path_length(tool))
+                long_paths.extend(self.check_path_length(tool))
             # Make sure we don't have duplicates
             tools_enabled = []
             tools_duplicates = []
