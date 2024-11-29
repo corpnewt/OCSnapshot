@@ -280,7 +280,7 @@ class OCSnapshot:
             tree_dict["Kernel"]["Add"] = []
 
         kext_list = []
-        # We need to gather a list of all the files inside that and with .efi
+        # We need to check any directory whose name ends with .kext
         for path, subdirs, files in os.walk(oc_kexts):
             for name in sorted(subdirs, key=lambda x:x.lower()):
                 if name.startswith(".") or not name.lower().endswith(".kext"): continue
