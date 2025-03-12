@@ -280,6 +280,7 @@ class OCSnapshot:
             tree_dict["Kernel"]["Add"] = []
 
         kext_list = []
+        omitted_kexts = []
         # We need to check any directory whose name ends with .kext
         for path, subdirs, files in os.walk(oc_kexts):
             for name in sorted(subdirs, key=lambda x:x.lower()):
@@ -306,6 +307,7 @@ class OCSnapshot:
                     if plist_full_path: break # Found it - break
                 else:
                     # Didn't find it - skip
+                    omitted_kexts.append(name)
                     continue
                 kdict["PlistPath"] = plist_rel_path
                 # Let's load the plist and check for other info
@@ -313,6 +315,7 @@ class OCSnapshot:
                     with open(plist_full_path,"rb") as f:
                         info_plist = plist.load(f)
                     if not "CFBundleIdentifier" in info_plist or not isinstance(info_plist["CFBundleIdentifier"],(str,unicode)):
+                        omitted_kexts.append(name)
                         continue # Requires a valid CFBundleIdentifier string
                     kinfo = {
                         "CFBundleIdentifier": info_plist["CFBundleIdentifier"],
@@ -322,13 +325,16 @@ class OCSnapshot:
                     }
                     if info_plist.get("CFBundleExecutable",None):
                         if not os.path.exists(os.path.join(path,name,"Contents","MacOS",info_plist["CFBundleExecutable"])):
+                            omitted_kexts.append(name)
                             continue # Requires an executable that doesn't exist - bail
                         kdict["ExecutablePath"] = "Contents/MacOS/"+info_plist["CFBundleExecutable"]
-                except Exception as e: 
+                except Exception as e:
+                    omitted_kexts.append(name)
                     continue # Something else broke here - bail
                 # Should have something valid here
                 kext_list.append((kdict,kinfo))
-
+        if omitted_kexts:
+            print("Invalid kexts have been omitted:\n\n{}\n".format("\n".join(omitted_kexts)))
         bundle_list = [x[0].get("BundlePath","") for x in kext_list]
         kexts = [] if clean else tree_dict["Kernel"]["Add"]
         original_kexts = [x for x in kexts if isinstance(x,dict) and x.get("BundlePath","") in bundle_list] # get the original load order for comparison purposes - but omit any that no longer exist
@@ -580,7 +586,7 @@ class OCSnapshot:
                         continue
                 new_drivers.append(driver)
                 # Check path length
-            long_paths.extend(self.check_path_length(driver))
+                long_paths.extend(self.check_path_length(driver))
             # Make sure we don't have duplicates
             drivers_enabled = []
             drivers_duplicates = []
