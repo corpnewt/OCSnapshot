@@ -5,15 +5,22 @@ from Scripts import utils, plist
 try:
     long
     unicode
+    basestring
 except NameError:  # Python 3
     long = int
     unicode = str
+    basestring = str
 
 class OCSnapshot:
     def __init__(self):
         self.u = utils.Utils("OC Snapshot")
         self.snapshot_data = {}
         self.safe_path_length = 128 # OC_STORAGE_SAFE_PATH_MAX from Include/Acidanthera/Library/OcStorageLib.h in OpenCorePkg
+        # Get the relative paths to adjust our path max
+        self.acpi_path        = "ACPI\\"
+        self.kext_path        = "Kexts\\"
+        self.tool_path        = "Tools\\"
+        self.uefi_driver_path = "Drivers\\"
         snapshot_plist = os.path.join(os.path.dirname(os.path.realpath(__file__)),"Scripts","snapshot.plist")
         if os.path.exists(snapshot_plist):
             try:
@@ -48,22 +55,31 @@ class OCSnapshot:
         temp_max = "99.99.99" if temp_max == "" else temp_max
         return (temp_min,temp_max)
 
-    def check_path_length(self, item):
+    def check_path_length(self, item, prefix=""):
+        prefix_len = len(prefix)
         paths_too_long = []
         if isinstance(item,dict):
             # Get the last path component of the Path or BundlePath values for the name
             name = os.path.basename(item.get("Path",item.get("BundlePath","Unknown Name")))
             # Check the keys containing "path"
             for key in item:
-                if "path" in key.lower() and isinstance(item[key],(str,unicode)) and len(item[key])>self.safe_path_length:
-                    paths_too_long.append(key) # Too long - keep a reference of the key
-        elif isinstance(item,(str,unicode)):
+                if "path" in key.lower() and isinstance(item[key],basestring):
+                    if key.lower() in ("executablepath","plistpath") and isinstance(item.get("BundlePath"),basestring):
+                        # We got a kext and need to join the executable/plist paths with the
+                        # bundle path using `\\` as a delimiter
+                        if prefix_len+len(item["BundlePath"]+"\\"+item[key])>self.safe_path_length:
+                            paths_too_long.append(key)
+                    elif prefix_len+len(item[key])>self.safe_path_length:
+                        paths_too_long.append(key) # Too long - keep a reference of the key
+        elif isinstance(item,basestring):
             name = os.path.basename(item) # Retain the last path component as the name
             # Checking the item itself
-            if len(item)>self.safe_path_length:
+            if prefix_len+len(item)>self.safe_path_length:
                 paths_too_long.append(item)
-        else: return paths_too_long # Empty list
-        if not paths_too_long: return [] # Return an empty array to allow .extend()
+        else:
+            return paths_too_long # Empty list
+        if not paths_too_long:
+            return [] # Return an empty array to allow .extend()
         return [(item,name,paths_too_long)] # Return a list containing a tuple of the original item, and which paths are too long
     
     def snapshot(self, in_file = None, out_file = None, oc_folder = None, clean = False, oc_schema = None, force_update_schema = False):
@@ -248,7 +264,7 @@ class OCSnapshot:
                 continue
             new_add.append(aml)
             # Check path length
-            long_paths.extend(self.check_path_length(aml))
+            long_paths.extend(self.check_path_length(aml,self.apci_path))
         # Make sure we don't have duplicates
         acpi_enabled = []
         acpi_duplicates = []
@@ -314,14 +330,14 @@ class OCSnapshot:
                 try:
                     with open(plist_full_path,"rb") as f:
                         info_plist = plist.load(f)
-                    if not "CFBundleIdentifier" in info_plist or not isinstance(info_plist["CFBundleIdentifier"],(str,unicode)):
+                    if not "CFBundleIdentifier" in info_plist or not isinstance(info_plist["CFBundleIdentifier"],basestring):
                         omitted_kexts.append(name)
                         continue # Requires a valid CFBundleIdentifier string
                     kinfo = {
                         "CFBundleIdentifier": info_plist["CFBundleIdentifier"],
                         "OSBundleLibraries": info_plist.get("OSBundleLibraries",[]),
                         "cfbi": info_plist["CFBundleIdentifier"].lower(), # Case insensitive
-                        "osbl": [x.lower() for x in info_plist.get("OSBundleLibraries",[]) if isinstance(x,(str,unicode))] # Case insensitive
+                        "osbl": [x.lower() for x in info_plist.get("OSBundleLibraries",[]) if isinstance(x,basestring)] # Case insensitive
                     }
                     if info_plist.get("CFBundleExecutable",None):
                         if not os.path.exists(os.path.join(path,name,"Contents","MacOS",info_plist["CFBundleExecutable"])):
@@ -417,7 +433,7 @@ class OCSnapshot:
         duplicates_disabled = []
         for kext in ordered_kexts:
             # Check path length
-            long_paths.extend(self.check_path_length(kext))
+            long_paths.extend(self.check_path_length(kext,self.kext_path))
             temp_kext = {}
             # Shallow copy the kext entry to avoid changing it in ordered_kexts
             for x in kext: temp_kext[x] = kext[x]
@@ -509,7 +525,7 @@ class OCSnapshot:
                     continue
                 new_tools.append(tool)
                 # Check path length
-                long_paths.extend(self.check_path_length(tool))
+                long_paths.extend(self.check_path_length(tool,self.tool_path))
             # Make sure we don't have duplicates
             tools_enabled = []
             tools_duplicates = []
@@ -564,7 +580,7 @@ class OCSnapshot:
             drivers = [] if clean else tree_dict["UEFI"]["Drivers"]
             for driver in sorted(drivers_list, key=lambda x: x.get("Path","").lower() if driver_add else x):
                 if not driver_add: # Old way
-                    if not isinstance(driver,(str,unicode)) or driver.lower() in [x.lower() for x in drivers if isinstance(x,(str,unicode))]:
+                    if not isinstance(driver,basestring) or driver.lower() in [x.lower() for x in drivers if isinstance(x,basestring)]:
                         continue
                 else:
                     if driver["Path"].lower() in [x.get("Path","").lower() for x in drivers if isinstance(x,dict)]:
@@ -575,7 +591,7 @@ class OCSnapshot:
             new_drivers = []
             for driver in drivers:
                 if not driver_add: # Old way
-                    if not isinstance(driver,(str,unicode)) or not driver.lower() in [x.lower() for x in drivers_list if isinstance(x,(str,unicode))]:
+                    if not isinstance(driver,basestring) or not driver.lower() in [x.lower() for x in drivers_list if isinstance(x,basestring)]:
                         continue
                 else:
                     if not isinstance(driver,dict):
@@ -586,7 +602,7 @@ class OCSnapshot:
                         continue
                 new_drivers.append(driver)
                 # Check path length
-                long_paths.extend(self.check_path_length(driver))
+                long_paths.extend(self.check_path_length(driver,self.uefi_driver_path))
             # Make sure we don't have duplicates
             drivers_enabled = []
             drivers_duplicates = []
@@ -649,7 +665,7 @@ class OCSnapshot:
             formatted = []
             for entry in long_paths:
                 item,name,keys = entry
-                if isinstance(item,(str,unicode)): # It's an older string path
+                if isinstance(item,basestring): # It's an older string path
                     formatted.append(name)
                 elif isinstance(item,dict):
                     formatted.append("{} -> {}".format(name,", ".join(keys)))
