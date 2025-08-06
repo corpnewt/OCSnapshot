@@ -264,7 +264,7 @@ class OCSnapshot:
                 continue
             new_add.append(aml)
             # Check path length
-            long_paths.extend(self.check_path_length(aml,self.apci_path))
+            long_paths.extend(self.check_path_length(aml,self.acpi_path))
         # Make sure we don't have duplicates
         acpi_enabled = []
         acpi_duplicates = []
