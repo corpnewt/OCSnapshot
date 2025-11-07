@@ -340,10 +340,26 @@ class OCSnapshot:
                         "osbl": [x.lower() for x in info_plist.get("OSBundleLibraries",[]) if isinstance(x,basestring)] # Case insensitive
                     }
                     if info_plist.get("CFBundleExecutable",None):
-                        if not os.path.exists(os.path.join(path,name,"Contents","MacOS",info_plist["CFBundleExecutable"])):
+                        exec_rel_path  = None
+                        exec_full_path = os.path.join(path,name,"Contents","MacOS",info_plist["CFBundleExecutable"])
+                        if os.path.exists(exec_full_path):
+                            # Found it in the usual spot
+                            exec_rel_path = "Contents/MacOS/"+info_plist["CFBundleExecutable"]
+                        else:
+                            # Didn't find it in the usual spot - check for it anywhere in the kext
+                            cfbundle_lower = info_plist["CFBundleExecutable"].lower()
+                            exec_rel_path = exec_full_path = None
+                            for kpath, ksubdirs, kfiles in os.walk(os.path.join(path,name)):
+                                for kname in kfiles:
+                                    if kname.lower() == cfbundle_lower:
+                                        exec_full_path = os.path.join(kpath,kname)
+                                        exec_rel_path  = exec_full_path[len(os.path.join(path,name)):].replace("\\", "/").lstrip("/")
+                                        break
+                        if not exec_rel_path or not exec_full_path or not os.path.getsize(exec_full_path):
                             omitted_kexts.append(name)
                             continue # Requires an executable that doesn't exist - bail
-                        kdict["ExecutablePath"] = "Contents/MacOS/"+info_plist["CFBundleExecutable"]
+                        # Found something
+                        kdict["ExecutablePath"] = exec_rel_path
                 except Exception as e:
                     omitted_kexts.append(name)
                     continue # Something else broke here - bail
@@ -376,20 +392,21 @@ class OCSnapshot:
                     kext[check] = kext_match.get(check,"")
             new_kexts.append(kext)
         # Let's check inheritance via the info
-        # We need to ensure that no 2 kexts consider each other as parents
         unordered_kexts = []
         for x in new_kexts:
             info = next((y[1] for y in kext_list if y[0].get("BundlePath","") == x.get("BundlePath","")),None)
             if not info: continue
             parents = [(z,y[1]) for z in new_kexts for y in kext_list if z.get("BundlePath","") == y[0].get("BundlePath","") if y[1].get("cfbi",None) in info.get("osbl",[])]
             children = [next((z for z in new_kexts if z.get("BundlePath","") == y[0].get("BundlePath","")),[]) for y in kext_list if info.get("cfbi",None) in y[1].get("osbl",[])]
-            parents = [y for y in parents if not y[0] in children and not y[0].get("BundlePath","") == x.get("BundlePath","")]
             unordered_kexts.append({
                 "kext":x,
                 "parents":parents
             })
         ordered_kexts = []
         disabled_parents = []
+        cyclic_kexts = []
+        loops_without_changes = 0
+        cyclic_dependencies = False
         while len(unordered_kexts): # This could be dangerous if things aren't properly prepared above
             kext = unordered_kexts.pop(0)
             if len(kext["parents"]):
@@ -405,9 +422,21 @@ class OCSnapshot:
                             continue # Already have a warning copy
                         disabled_parents.append(p)
                 if not all(x[0] in ordered_kexts for x in kext["parents"]):
+                    loops_without_changes += 1
+                    cyclic_kexts.append(kext["kext"])
+                    if loops_without_changes > len(unordered_kexts):
+                        cyclic_dependencies = True
+                        break
                     unordered_kexts.append(kext)
                     continue
+            cyclic_kexts = [] # Reset the cyclic kext list
+            loops_without_changes = 0 # Reset the counter
             ordered_kexts.append(kext["kext"])
+        # If we bailed because of cyclic deps - let's warn the user
+        if cyclic_dependencies:
+            print("Kexts with cyclic dependencies have been omitted:\n\n{}\n".format(
+                "\n".join([x.get("BundlePath","") for x in cyclic_kexts])
+            ))
         # Let's compare against the original load order - to prevent mis-prompting
         missing_kexts = [x for x in ordered_kexts if not x in original_kexts]
         original_kexts.extend(missing_kexts)
