@@ -222,6 +222,11 @@ class OCSnapshot:
 
         long_paths = [] # We'll add any paths that exceed the OC_STORAGE_SAFE_PATH_MAX of 128 chars
 
+        def path_is_valid(test_path):
+            # Check if any of the path elements equal __MACOSX and skip those
+            # as we don't want to include extended attributes or similar.
+            return not any(x == "__MACOSX" for x in os.path.normpath(test_path).split(os.path.sep))
+
         # ACPI is first, we'll iterate the .aml/.bin files we have and add what is missing
         # while also removing what exists in the plist and not in the folder.
         # If something exists in the table already, we won't touch it.  This leaves the
@@ -237,6 +242,8 @@ class OCSnapshot:
         # Now we walk the existing add values
         new_acpi = []
         for path, subdirs, files in os.walk(oc_acpi):
+            if not path_is_valid(path):
+                continue
             for name in files:
                 if not name.startswith(".") and name.lower().endswith((".aml",".bin")):
                     new_acpi.append(os.path.join(path,name)[len(oc_acpi):].replace("\\", "/").lstrip("/"))
@@ -299,6 +306,8 @@ class OCSnapshot:
         omitted_kexts = []
         # We need to check any directory whose name ends with .kext
         for path, subdirs, files in os.walk(oc_kexts):
+            if not path_is_valid(path):
+                continue
             for name in sorted(subdirs, key=lambda x:x.lower()):
                 if name.startswith(".") or not name.lower().endswith(".kext"): continue
                 kdict = {
@@ -315,6 +324,8 @@ class OCSnapshot:
                 # Get the Info.plist
                 plist_full_path = plist_rel_path = None
                 for kpath, ksubdirs, kfiles in os.walk(os.path.join(path,name)):
+                    if not path_is_valid(kpath):
+                        continue
                     for kname in kfiles:
                         if kname.lower() == "info.plist":
                             plist_full_path = os.path.join(kpath,kname)
@@ -350,6 +361,8 @@ class OCSnapshot:
                             cfbundle_lower = info_plist["CFBundleExecutable"].lower()
                             exec_rel_path = exec_full_path = None
                             for kpath, ksubdirs, kfiles in os.walk(os.path.join(path,name)):
+                                if not path_is_valid(kpath):
+                                    continue
                                 for kname in kfiles:
                                     if kname.lower() == cfbundle_lower:
                                         exec_full_path = os.path.join(kpath,kname)
@@ -517,6 +530,8 @@ class OCSnapshot:
             tools_list = []
             # We need to gather a list of all the files inside that and with .efi
             for path, subdirs, files in os.walk(oc_tools):
+                if not path_is_valid(path):
+                    continue
                 for name in files:
                     if not name.startswith(".") and name.lower().endswith(".efi"):
                         # Save it
@@ -592,6 +607,8 @@ class OCSnapshot:
             drivers_list = []
             # We need to gather a list of all the files inside that and with .efi
             for path, subdirs, files in os.walk(oc_drivers):
+                if not path_is_valid(path):
+                    continue
                 for name in files:
                     if not name.startswith(".") and name.lower().endswith(".efi"):
                         # Check if we're using the new approach - or just listing the paths
