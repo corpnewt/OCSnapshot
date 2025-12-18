@@ -591,7 +591,6 @@ class OCSnapshot:
             if len(tools_duplicates):
                 print("Duplicate Tools entries have been disabled:\n\n{}\n".format("\n".join(tools_duplicates)))
                 new_tools = tools_duplicates_disabled
-            new_add = acpi_duplicates_disabled
             # Save the results
             tree_dict["Misc"]["Tools"] = new_tools
         else:
